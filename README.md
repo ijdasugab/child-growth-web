@@ -1,5 +1,7 @@
 # Child Growth Web
 
+[![CI](https://github.com/ijdasugab/child-growth-web/actions/workflows/ci.yml/badge.svg)](https://github.com/ijdasugab/child-growth-web/actions/workflows/ci.yml)
+
 Child Growth Web adalah landing page dan dashboard/admin untuk aplikasi pemantauan tumbuh kembang anak. Repo ini terpisah dari backend API agar web, mobile, dan backend bisa dikelola secara independen.
 
 ## Status
