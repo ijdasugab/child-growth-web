@@ -991,6 +991,291 @@ textarea:focus {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.four-cols {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+/* ==========================================================================
+   Buku KIA: Smart Reminder & Imunisasi Styles
+   ========================================================================== */
+.reminder-alert-banner {
+  background: #FFF7E8;
+  border: 1px solid #F2AE38;
+  border-radius: var(--radius-md);
+  padding: 16px 20px;
+  margin-bottom: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.reminder-alert-banner.danger {
+  background: #FFF1EE;
+  border-color: #E04376;
+}
+
+.reminder-banner-content h4 {
+  margin: 0 0 4px;
+  font-size: 15px;
+  color: var(--navy);
+}
+
+.reminder-banner-content p {
+  margin: 0;
+  font-size: 13px;
+  color: #6B7280;
+}
+
+.reminder-summary-chips {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+.summary-chip {
+  padding: 8px 16px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  background: var(--surface);
+  border: 1px solid var(--accent-border);
+  color: var(--navy);
+}
+
+.summary-chip.success {
+  background: var(--success-soft);
+  border-color: var(--success);
+  color: var(--success-strong);
+}
+
+.summary-chip.warning {
+  background: var(--warning-soft);
+  border-color: var(--warning-strong);
+  color: #B45309;
+}
+
+.summary-chip.danger {
+  background: #FFF1EE;
+  border-color: #E04376;
+  color: #BE123C;
+}
+
+.filter-bar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.filter-btn {
+  padding: 6px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--accent-border);
+  background: var(--surface);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.filter-btn.active {
+  background: var(--accent);
+  color: #FFFFFF;
+  border-color: var(--accent);
+}
+
+.vaccine-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+}
+
+.vaccine-card {
+  background: var(--surface);
+  border: 1px solid var(--accent-border);
+  border-radius: var(--radius-md);
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.vaccine-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(23, 34, 59, 0.08);
+}
+
+.vaccine-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.vaccine-age-badge {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  padding: 3px 8px;
+  border-radius: 6px;
+}
+
+.vaccine-name {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--navy);
+  margin: 6px 0 4px;
+}
+
+.vaccine-target-date {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.vaccine-description {
+  font-size: 13px;
+  color: #4B5563;
+  line-height: 1.4;
+  margin-bottom: 12px;
+}
+
+.vaccine-record-details {
+  background: var(--surface-muted);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: var(--navy);
+  border-left: 3px solid var(--success);
+}
+
+.vaccine-record-details p {
+  margin: 2px 0;
+}
+
+.vaccine-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid #F3F4F6;
+}
+
+.btn-record-vaccine {
+  background: var(--accent);
+  color: #FFF;
+  border: none;
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.btn-record-vaccine:hover {
+  opacity: 0.9;
+}
+
+.status-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.status-badge.completed {
+  background: #EDFAF1;
+  color: #2F7A49;
+}
+
+.status-badge.due {
+  background: #FFF7E8;
+  color: #B45309;
+}
+
+.status-badge.overdue {
+  background: #FFF1EE;
+  color: #E04376;
+}
+
+.status-badge.upcoming {
+  background: #F3F4F6;
+  color: #6B7280;
+}
+
+/* KPSP / Milestone Cards */
+.milestone-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+}
+
+.milestone-card {
+  background: var(--surface);
+  border: 1px solid var(--accent-border);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  transition: background-color 0.2s;
+}
+
+.milestone-card.achieved {
+  background: #F9FEFA;
+  border-color: #B8E7C5;
+}
+
+.milestone-card input[type="checkbox"] {
+  margin-top: 4px;
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+
+.milestone-info {
+  flex: 1;
+}
+
+.milestone-category-pill {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--secondary-strong);
+  background: var(--secondary-soft);
+  padding: 2px 8px;
+  border-radius: 4px;
+  margin-bottom: 6px;
+}
+
+.milestone-text {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--navy);
+  margin-bottom: 4px;
+}
+
+.milestone-date {
+  font-size: 11px;
+  color: var(--success-strong);
+  font-weight: 600;
+}
+
 /* Reminders List */
 .stack-list {
   display: grid;
@@ -1519,5 +1804,253 @@ tr:hover td {
 
   .content {
     padding: 20px;
+  }
+}
+
+/* ==========================================================================
+   Buku KIA Extensions & Revamp
+   ========================================================================== */
+
+/* Hero KIA Showcase */
+.hero-kia-preview {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.hero-kia-book-card {
+  background: linear-gradient(145deg, #FFFFFF 0%, #FFF5F8 100%);
+  border: 2px solid #FFD4E2;
+  border-radius: var(--radius-lg);
+  box-shadow: 0 20px 40px rgba(240, 37, 137, 0.12);
+  padding: 24px;
+  max-width: 480px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  position: relative;
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+
+.hero-kia-book-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 24px 50px rgba(240, 37, 137, 0.18);
+}
+
+.kia-book-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #FFF0F5;
+  border: 1px solid #FFC5D8;
+  padding: 6px 14px;
+  border-radius: var(--radius-full);
+  font-size: 12px;
+  font-weight: 700;
+  color: #E04376;
+  width: fit-content;
+}
+
+.kia-pill-tag {
+  background: #E8F8F0;
+  color: #1B8A4E;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.kia-pink-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: #F02589;
+}
+
+.hero-kia-book-cover {
+  width: 100%;
+  max-height: 290px;
+  object-fit: cover;
+  border-radius: var(--radius-md);
+  border: 1px solid #FFE3EC;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.05);
+}
+
+/* KIA Standards Section */
+.kia-standards-section {
+  padding: 80px 32px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.kia-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 28px;
+  margin-top: 36px;
+}
+
+.kia-standard-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.kia-standard-card:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--primary-border);
+}
+
+.kia-card-img-wrap {
+  background: #FFF6F8;
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-bottom: 1px solid var(--line-subtle);
+  min-height: 190px;
+}
+
+.kia-card-img-wrap img {
+  max-width: 100%;
+  max-height: 175px;
+  object-fit: contain;
+  border-radius: var(--radius-sm);
+}
+
+.kia-card-content {
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-grow: 1;
+}
+
+.kia-card-tag {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--primary-strong);
+  background: var(--primary-soft);
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
+  width: fit-content;
+}
+
+.kia-card-content h3 {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--navy);
+  margin: 4px 0 0;
+  line-height: 1.3;
+}
+
+.kia-card-content p {
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1.55;
+  margin: 0;
+}
+
+/* In-App LiLA Guidance Banner */
+.lila-hint-banner {
+  background: #FFF4F8;
+  border: 1px solid #FFD4E2;
+  border-radius: var(--radius-md);
+  padding: 14px 18px;
+  margin: 10px 0 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.lila-hint-text strong {
+  font-size: 13px;
+  color: var(--navy);
+  display: block;
+  margin-bottom: 6px;
+}
+
+.lila-pills-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.lila-pill-green {
+  background: #EDFAF1;
+  color: #1B8A4E;
+  border: 1px solid #B8E8C7;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
+}
+
+.lila-pill-yellow {
+  background: #FFF9E6;
+  color: #B58105;
+  border: 1px solid #FFE28A;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
+}
+
+.lila-pill-red {
+  background: #FDF2F2;
+  color: #DC2626;
+  border: 1px solid #FCA5A5;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
+}
+
+.lila-guide-toggle-btn {
+  background: transparent;
+  border: none;
+  color: var(--primary-strong);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 4px 0;
+  text-align: left;
+  text-decoration: underline;
+  width: fit-content;
+}
+
+.lila-guide-toggle-btn:hover {
+  color: var(--primary);
+}
+
+/* LiLA Guide Modal */
+.lila-modal-card {
+  max-width: 680px;
+  width: 90%;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.lila-modal-img {
+  width: 100%;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-sm);
+}
+
+@media (max-width: 900px) {
+  .kia-cards-grid {
+    grid-template-columns: 1fr;
   }
 }

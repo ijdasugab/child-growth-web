@@ -2,9 +2,25 @@ import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import './App.css'
 
+// P2-2: klien HTTP dan formatter dipindah ke src/lib/ supaya bisa diuji
+// tanpa React, dan supaya App.tsx tidak lagi memuat semuanya.
+import {
+  apiRequest,
+  clearStoredAuth,
+  getStoredAuth,
+  saveStoredAuth,
+} from './lib/api'
+import {
+  formatAge,
+  formatDate,
+  formatDecimal,
+  formatHeight,
+  formatWeight,
+  toNumber,
+} from './lib/format'
+
 import babyAvatarSource from './assets/app-icon-baby.png'
 import babyIconSquare from './assets/app-icon-square.png'
-import girlBabySource from './assets/girl-baby.png'
 import crawlingBabySource from './assets/crawling-baby.png'
 import sleepBabySource from './assets/sleep-baby.png'
 import trophyPastelSource from './assets/trophy-pastel.png'
@@ -41,27 +57,6 @@ type EditChildForm = {
   birthLengthCm: string
 }
 
-const TOKEN_KEY = 'nata_baby_admin_token'
-const REFRESH_TOKEN_KEY = 'nata_baby_admin_refresh_token'
-const USER_KEY = 'nata_baby_admin_user'
-
-function getStoredAuth(): { token: string | null; user: AuthUser | null } {
-  try {
-    const token = localStorage.getItem(TOKEN_KEY)
-    const userStr = localStorage.getItem(USER_KEY)
-    const user = userStr ? (JSON.parse(userStr) as AuthUser) : null
-    return { token, user }
-  } catch {
-    return { token: null, user: null }
-  }
-}
-
-function clearStoredAuth() {
-  localStorage.removeItem(TOKEN_KEY)
-  localStorage.removeItem(REFRESH_TOKEN_KEY)
-  localStorage.removeItem(USER_KEY)
-}
-
 function isAdminUser(user: AuthUser | null): boolean {
   if (!user || !Array.isArray(user.roles)) return false
   return user.roles.includes('ADMIN') || user.roles.includes('SUPER_ADMIN')
@@ -82,6 +77,13 @@ type Measurement = {
   weightKg: ApiDecimal | null
   heightCm: ApiDecimal | null
   headCircumferenceCm: ApiDecimal | null
+  armCircumferenceCm?: ApiDecimal | null
+  armCircumferenceStatus?: string | null
+  growthTrend?: string | null
+  weightForAgeStatus?: string | null
+  heightForAgeStatus?: string | null
+  weightForHeightStatus?: string | null
+  headCircumferenceStatus?: string | null
   notes: string | null
 }
 
@@ -112,10 +114,71 @@ type MeasurementForm = {
   weightKg: string
   heightCm: string
   headCircumferenceCm: string
+  armCircumferenceCm: string
   notes: string
 }
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? ''
+type ImmunizationScheduleItem = {
+  masterId: string
+  vaccineName: string
+  recommendedAgeMonth: number
+  targetDate: string
+  description: string | null
+  isCompleted: boolean
+  status: 'COMPLETED' | 'DUE' | 'OVERDUE' | 'UPCOMING'
+  diffDays: number
+  recordId: string | null
+  givenDate: string | null
+  location: string | null
+  batchNumber: string | null
+  administeredBy: string | null
+  notes: string | null
+}
+
+type ImmunizationScheduleResponse = {
+  childId: string
+  childName: string
+  birthDate: string
+  ageInMonthsToday: number
+  summary: {
+    total: number
+    completed: number
+    due: number
+    overdue: number
+    upcoming: number
+    hasActionRequired: boolean
+  }
+  schedule: ImmunizationScheduleItem[]
+}
+
+type MilestoneMasterItem = {
+  id: string
+  ageMonth: number
+  category: string | null
+  milestoneText: string
+}
+
+type ChildMilestoneItem = {
+  id: string
+  childId: string
+  milestoneMasterId: string
+  achieved: boolean | null
+  achievedDate: string | null
+  notes: string | null
+  milestoneMaster?: MilestoneMasterItem
+}
+
+type VaccineModalData = {
+  masterId: string
+  vaccineName: string
+  recordId: string | null
+  givenDate: string
+  location: string
+  batchNumber: string
+  administeredBy: string
+  notes: string
+}
+
 
 const initialChildForm: ChildForm = {
   fullName: '',
@@ -130,41 +193,10 @@ const initialMeasurementForm: MeasurementForm = {
   weightKg: '',
   heightCm: '',
   headCircumferenceCm: '',
+  armCircumferenceCm: '',
   notes: '',
 }
 
-async function apiRequest<T>(path: string, options?: RequestInit): Promise<T> {
-  const token = localStorage.getItem(TOKEN_KEY)
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    ...(options?.headers as Record<string, string>),
-  }
-
-  const response = await fetch(`${apiBaseUrl}${path}`, {
-    ...options,
-    headers,
-  })
-
-  if (!response.ok) {
-    const errorBody = (await response.json().catch(() => null)) as {
-      message?: string
-    } | null
-    const msg = errorBody?.message || `Request gagal (${response.status})`
-
-    if (response.status === 401 && path !== '/api/auth/login') {
-      clearStoredAuth()
-    }
-
-    throw new Error(msg)
-  }
-
-  if (response.status === 204) {
-    return undefined as T
-  }
-
-  return response.json() as Promise<T>
-}
 
 function getRoute(): Route {
   const path = window.location.pathname
@@ -177,64 +209,31 @@ function getRoute(): Route {
   return 'landing'
 }
 
-function formatDate(value: string) {
-  return new Intl.DateTimeFormat('id-ID', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  }).format(new Date(value))
+
+
+function numberOrUndefined(value: string | number | null | undefined): number | undefined {
+  if (value === null || value === undefined) return undefined
+  if (typeof value === 'number') return Number.isFinite(value) ? value : undefined
+  const cleaned = String(value).trim().replace(',', '.')
+  if (cleaned === '') return undefined
+  const num = Number(cleaned)
+  return Number.isFinite(num) ? num : undefined
 }
 
-function calculateAge(birthDate: string) {
-  const birth = new Date(birthDate)
-  const now = new Date()
-  const monthDiff =
-    (now.getFullYear() - birth.getFullYear()) * 12 +
-    now.getMonth() -
-    birth.getMonth()
-
-  if (monthDiff < 12) {
-    return `${Math.max(monthDiff, 0)} bulan`
-  }
-
-  return `${Math.floor(monthDiff / 12)} tahun ${monthDiff % 12} bulan`
-}
-
-function numberOrUndefined(value: string) {
-  return value.trim() === '' ? undefined : Number(value)
-}
-
-function formatDecimal(value: ApiDecimal | null | undefined) {
-  if (value === null || value === undefined) {
-    return '-'
-  }
-
-  if (typeof value === 'string' || typeof value === 'number') {
-    return String(value)
-  }
-
-  const digits = value.d.join('').padStart(value.e + 1, '0')
-  const decimalIndex = value.e + 1
-  const integerPart = digits.slice(0, decimalIndex) || '0'
-  const fractionalPart = digits.slice(decimalIndex).replace(/0+$/, '')
-  const sign = value.s < 0 ? '-' : ''
-
-  return `${sign}${integerPart}${fractionalPart ? `.${fractionalPart}` : ''}`
-}
 
 function App() {
   const [route, setRoute] = useState<Route>(getRoute)
   const [dashboardTab, setDashboardTab] = useState<DashboardTab>('monitoring')
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(
-    () => getStoredAuth().user,
+    () => getStoredAuth().user as AuthUser | null,
   )
-  const [loginEmail, setLoginEmail] = useState('bagus@natababy.local')
+  const [loginEmail, setLoginEmail] = useState('')
   const [loginPassword, setLoginPassword] = useState('')
   const [isLoggingIn, setIsLoggingIn] = useState(false)
   const [loginError, setLoginError] = useState<string | null>(null)
 
   const [showLoginModal, setShowLoginModal] = useState(false)
-  const [loginModalEmail, setLoginModalEmail] = useState('bagus@natababy.local')
+  const [loginModalEmail, setLoginModalEmail] = useState('')
   const [loginModalPassword, setLoginModalPassword] = useState('')
   const [loginModalError, setLoginModalError] = useState<string | null>(null)
   const [isLoggingInModal, setIsLoggingInModal] = useState(false)
@@ -255,6 +254,33 @@ function App() {
   const [isSavingChild, setIsSavingChild] = useState(false)
   const [isSavingMeasurement, setIsSavingMeasurement] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Smart Reminder & Imunisasi Buku KIA
+  const [immunizationSchedule, setImmunizationSchedule] =
+    useState<ImmunizationScheduleResponse | null>(null)
+  const [vaccineFilter, setVaccineFilter] = useState<
+    'all' | 'action_needed' | 'completed'
+  >('all')
+  const [vaccineModalData, setVaccineModalData] =
+    useState<VaccineModalData | null>(null)
+  const [isSavingVaccine, setIsSavingVaccine] = useState(false)
+  const [vaccineMsg, setVaccineMsg] = useState<{
+    type: 'success' | 'error'
+    text: string
+  } | null>(null)
+
+  // Milestone & KPSP Buku KIA
+  const [masterMilestones, setMasterMilestones] = useState<
+    MilestoneMasterItem[]
+  >([])
+  const [childMilestones, setChildMilestones] = useState<ChildMilestoneItem[]>(
+    [],
+  )
+  const [milestoneAgeFilter, setMilestoneAgeFilter] = useState<
+    number | 'all'
+  >('all')
+  const [isUpdatingMilestone, setIsUpdatingMilestone] = useState(false)
+  const [showLilaModal, setShowLilaModal] = useState(false)
 
   const latestMeasurement = selectedChild?.measurements[0]
   const dashboardGender = selectedChild?.gender ?? childForm.gender
@@ -294,12 +320,38 @@ function App() {
     }
   }
 
+  async function loadImmunizationSchedule(childId: string) {
+    try {
+      const data = await apiRequest<ImmunizationScheduleResponse>(
+        `/api/children/${childId}/immunizations/schedule`,
+      )
+      setImmunizationSchedule(data)
+    } catch {
+      setImmunizationSchedule(null)
+    }
+  }
+
+  async function loadMilestones(childId: string) {
+    try {
+      const [masters, given] = await Promise.all([
+        apiRequest<MilestoneMasterItem[]>('/api/master-data/milestones'),
+        apiRequest<ChildMilestoneItem[]>(`/api/children/${childId}/milestones`),
+      ])
+      setMasterMilestones(masters)
+      setChildMilestones(given)
+    } catch {
+      // diamkan
+    }
+  }
+
   async function loadChildDetail(childId: string) {
     setError(null)
 
     try {
       const data = await apiRequest<ChildDetail>(`/api/children/${childId}`)
       setSelectedChild(data)
+      void loadImmunizationSchedule(childId)
+      void loadMilestones(childId)
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -315,12 +367,12 @@ function App() {
       void loadChildren()
 
       const { token, user } = getStoredAuth()
-      if (token && isAdminUser(user)) {
+      if (token && isAdminUser(user as AuthUser | null)) {
         apiRequest<AuthUser>('/api/auth/me')
           .then((verifiedUser) => {
             if (isAdminUser(verifiedUser)) {
               setCurrentUser(verifiedUser)
-              localStorage.setItem(USER_KEY, JSON.stringify(verifiedUser))
+              saveStoredAuth(token, getStoredAuth().refreshToken, verifiedUser)
             } else {
               clearStoredAuth()
               setCurrentUser(null)
@@ -333,7 +385,7 @@ function App() {
       }
     } else if (route === 'login') {
       const { token, user } = getStoredAuth()
-      if (token && isAdminUser(user)) {
+      if (token && isAdminUser(user as AuthUser | null)) {
         navigate('dashboard')
       }
     }
@@ -360,17 +412,16 @@ function App() {
       return
     }
 
+    const parsedWeight = toNumber(target.birthWeightKg)
+    const parsedLength = toNumber(target.birthLengthCm)
+
     setEditingChild({
       id: target.id,
       fullName: target.fullName,
       gender: target.gender,
       birthDate: target.birthDate ? target.birthDate.slice(0, 10) : '',
-      birthWeightKg: target.birthWeightKg
-        ? formatDecimal(target.birthWeightKg)
-        : '',
-      birthLengthCm: target.birthLengthCm
-        ? formatDecimal(target.birthLengthCm)
-        : '',
+      birthWeightKg: parsedWeight !== null ? String(parsedWeight) : '',
+      birthLengthCm: parsedLength !== null ? String(parsedLength) : '',
     })
     setEditSuccessMsg(null)
     setEditErrorMsg(null)
@@ -472,9 +523,7 @@ function App() {
         return
       }
 
-      localStorage.setItem(TOKEN_KEY, data.accessToken)
-      localStorage.setItem(REFRESH_TOKEN_KEY, data.refreshToken)
-      localStorage.setItem(USER_KEY, JSON.stringify(data.user))
+      saveStoredAuth(data.accessToken, data.refreshToken, data.user)
       setCurrentUser(data.user)
       setLoginModalPassword('')
       setLoginModalError(null)
@@ -524,9 +573,7 @@ function App() {
         return
       }
 
-      localStorage.setItem(TOKEN_KEY, data.accessToken)
-      localStorage.setItem(REFRESH_TOKEN_KEY, data.refreshToken)
-      localStorage.setItem(USER_KEY, JSON.stringify(data.user))
+      saveStoredAuth(data.accessToken, data.refreshToken, data.user)
       setCurrentUser(data.user)
       setLoginPassword('')
       setLoginError(null)
@@ -546,7 +593,7 @@ function App() {
 
   async function handleLogout() {
     try {
-      const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY)
+      const refreshToken = getStoredAuth().refreshToken
       if (refreshToken) {
         await apiRequest('/api/auth/logout', {
           method: 'POST',
@@ -623,6 +670,9 @@ function App() {
             headCircumferenceCm: numberOrUndefined(
               measurementForm.headCircumferenceCm,
             ),
+            armCircumferenceCm: numberOrUndefined(
+              measurementForm.armCircumferenceCm,
+            ),
             notes: measurementForm.notes || undefined,
           }),
         },
@@ -638,6 +688,107 @@ function App() {
       )
     } finally {
       setIsSavingMeasurement(false)
+    }
+  }
+
+  async function handleSaveVaccine(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!selectedChildId || !vaccineModalData) return
+
+    setIsSavingVaccine(true)
+    setVaccineMsg(null)
+
+    try {
+      if (vaccineModalData.recordId) {
+        await apiRequest(
+          `/api/children/${selectedChildId}/immunizations/${vaccineModalData.recordId}`,
+          {
+            method: 'PUT',
+            body: JSON.stringify({
+              immunizationMasterId: vaccineModalData.masterId,
+              givenDate: vaccineModalData.givenDate || undefined,
+              location: vaccineModalData.location || undefined,
+              batchNumber: vaccineModalData.batchNumber || undefined,
+              administeredBy: vaccineModalData.administeredBy || undefined,
+              notes: vaccineModalData.notes || undefined,
+            }),
+          },
+        )
+      } else {
+        await apiRequest(
+          `/api/children/${selectedChildId}/immunizations`,
+          {
+            method: 'POST',
+            body: JSON.stringify({
+              immunizationMasterId: vaccineModalData.masterId,
+              givenDate: vaccineModalData.givenDate || undefined,
+              location: vaccineModalData.location || undefined,
+              batchNumber: vaccineModalData.batchNumber || undefined,
+              administeredBy: vaccineModalData.administeredBy || undefined,
+              notes: vaccineModalData.notes || undefined,
+            }),
+          },
+        )
+      }
+
+      setVaccineMsg({
+        type: 'success',
+        text: `Imunisasi ${vaccineModalData.vaccineName} berhasil dicatat!`,
+      })
+      await loadImmunizationSchedule(selectedChildId)
+      setTimeout(() => {
+        setVaccineModalData(null)
+        setVaccineMsg(null)
+      }, 900)
+    } catch (err) {
+      setVaccineMsg({
+        type: 'error',
+        text: err instanceof Error ? err.message : 'Gagal mencatat imunisasi.',
+      })
+    } finally {
+      setIsSavingVaccine(false)
+    }
+  }
+
+  async function handleToggleMilestone(
+    masterId: string,
+    currentAchieved: boolean,
+  ) {
+    if (!selectedChildId || isUpdatingMilestone) return
+    setIsUpdatingMilestone(true)
+
+    try {
+      const existing = childMilestones.find(
+        (m) => String(m.milestoneMasterId) === String(masterId),
+      )
+      if (existing) {
+        await apiRequest(
+          `/api/children/${selectedChildId}/milestones/${existing.id}`,
+          {
+            method: 'PUT',
+            body: JSON.stringify({
+              achieved: !currentAchieved,
+              achievedDate: !currentAchieved
+                ? new Date().toISOString().slice(0, 10)
+                : null,
+            }),
+          },
+        )
+      } else {
+        await apiRequest(`/api/children/${selectedChildId}/milestones`, {
+          method: 'POST',
+          body: JSON.stringify({
+            milestoneMasterId: masterId,
+            achieved: true,
+            achievedDate: new Date().toISOString().slice(0, 10),
+          }),
+        })
+      }
+      await loadMilestones(selectedChildId)
+    } catch {
+      // toleransi kegagalan jaringan
+    } finally {
+      setIsUpdatingMilestone(false)
     }
   }
 
@@ -792,9 +943,10 @@ function App() {
             </span>
           </button>
           <div className="nav-actions">
+            <a href="#kia-standards">Panduan Buku KIA</a>
             <a href="#features">Fitur</a>
-            <a href="#tips">Tips</a>
             <a href="#milestones">Milestone</a>
+            <a href="#tips">Tips</a>
             <button
               className="primary-button"
               onClick={() => navigate('dashboard')}
@@ -819,62 +971,140 @@ function App() {
         {/* Hero Section */}
         <section className="hero-section">
           <div className="hero-copy">
-            <p className="eyebrow">Aplikasi Tumbuh Kembang Anak</p>
+            <p className="eyebrow">🛡️ Panduan Resmi Buku KIA</p>
             <h1>
-              Tumbuh Kembang Si Kecil Terpantau Lebih{' '}
-              <span className="highlight">Tenang & Teratur.</span>
+              Kawal Tumbuh Kembang Si Kecil dengan{' '}
+              <span className="highlight">Buku KIA.</span>
             </h1>
             <p>
-              Nata Baby memudahkan pencatatan berat, tinggi badan, lingkar
-              kepala, pemantauan milestone, dan pengingat imunisasi secara
-              lengkap dalam satu ekosistem web dan mobile.
+              Aplikasi pemantauan tumbuh kembang anak berbasis Buku KIA.
+              Pantau kurva pertumbuhan WHO, skrining Lingkar Lengan Atas
+              (LiLA), 21 jadwal imunisasi nasional, dan deteksi dini KPSP
+              dalam satu aplikasi modern.
             </p>
             <div className="hero-actions">
               <button
                 className="primary-button"
                 onClick={() => navigate('dashboard')}
               >
-                Buka Dashboard
+                Buka Dashboard Pemantauan
               </button>
-              <a className="secondary-link" href="#features">
-                Pelajari Fitur ↓
+              <a className="secondary-link" href="#kia-standards">
+                Pelajari Buku KIA ↓
               </a>
             </div>
           </div>
 
-          {/* Hero Showcase with Mobile Visuals */}
-          <div className="hero-mobile-preview" aria-label="Preview Nata Baby">
-            <div className="hero-speech-bubble">
-              <div className="hero-bubble-text">
-                <h3>Halo, Mama! ✨</h3>
-                <p>Yuk, cek perkembangan si kecil hari ini.</p>
+          {/* Hero Showcase with Buku KIA */}
+          <div className="hero-kia-preview" aria-label="Buku KIA">
+            <div className="hero-kia-book-card">
+              <div className="kia-book-badge">
+                <span className="kia-pill-tag">BUKU KIA</span>
+                <span className="kia-pink-dot"></span>
+                <span>Panduan Pelayanan Posyandu & Fasyankes</span>
               </div>
-            </div>
-
-            <div className="hero-baby-visual">
               <img
-                src={girlBabySource}
-                alt="Ilustrasi Bayi Nata Baby"
+                src="/kia/kia-cover-banner.png"
+                alt="Buku Kesehatan Ibu dan Anak"
+                className="hero-kia-book-cover"
               />
+              <div className="hero-stat-badges">
+                <div className="hero-stat-badge green">
+                  <span>Imunisasi Lengkap</span>
+                  <strong>21 Vaksin</strong>
+                  <small className="muted">PCV, RV, JE Lengkap</small>
+                </div>
+                <div className="hero-stat-badge pink">
+                  <span>Skrining LiLA</span>
+                  <strong>&ge; 12.5 cm</strong>
+                  <small className="muted">Standar Pita Gizi</small>
+                </div>
+                <div className="hero-stat-badge blue">
+                  <span>Deteksi KPSP</span>
+                  <strong>Standar WHO</strong>
+                  <small className="muted">Motorik & Bahasa</small>
+                </div>
+              </div>
             </div>
+          </div>
+        </section>
 
-            <div className="hero-stat-badges">
-              <div className="hero-stat-badge green">
-                <span>Berat Badan</span>
-                <strong>7.8 kg</strong>
-                <small className="muted">+0.3 kg</small>
+        {/* Buku KIA Section */}
+        <section className="kia-standards-section" id="kia-standards">
+          <div className="section-title">
+            <p className="eyebrow">Panduan Resmi Posyandu & Fasyankes</p>
+            <h2>Panduan Buku KIA untuk Tumbuh Kembang Optimal</h2>
+            <p
+              style={{
+                color: 'var(--text-muted)',
+                fontSize: '16px',
+                maxWidth: '720px',
+                margin: '8px auto 0',
+              }}
+            >
+              Buku KIA adalah panduan penting untuk mengawal kelangsungan
+              hidup, tumbuh kembang, dan perlindungan anak dari risiko gangguan gizi
+              sejak awal kehidupan.
+            </p>
+          </div>
+
+          <div className="kia-cards-grid">
+            <article className="kia-standard-card">
+              <div className="kia-card-img-wrap">
+                <img
+                  src="/kia/kia-1000hpk.png"
+                  alt="1000 Hari Pertama Kehidupan"
+                />
               </div>
-              <div className="hero-stat-badge blue">
-                <span>Tinggi Badan</span>
-                <strong>68.5 cm</strong>
-                <small className="muted">+1.2 cm</small>
+              <div className="kia-card-content">
+                <span className="kia-card-tag">Pondasi Emas Anak</span>
+                <h3>1000 Hari Pertama Kehidupan (1000 HPK)</h3>
+                <p>
+                  Masa paling krusial bagi perkembangan otak dan organ vital:
+                  270 hari masa kandungan dan 730 hari awal kehidupan.
+                  Kekurangan nutrisi pada fase ini berdampak permanen, sehingga
+                  pemantauan berkala wajib dilakukan.
+                </p>
               </div>
-              <div className="hero-stat-badge pink">
-                <span>Milestone</span>
-                <strong>5</strong>
-                <small className="muted">Pencapaian</small>
+            </article>
+
+            <article className="kia-standard-card">
+              <div className="kia-card-img-wrap">
+                <img
+                  src="/kia/kia-lila-guide.png"
+                  alt="Panduan Pita LiLA Buku KIA"
+                />
               </div>
-            </div>
+              <div className="kia-card-content">
+                <span className="kia-card-tag">Deteksi Gizi Akut</span>
+                <h3>Pita Lingkar Lengan Atas (LiLA)</h3>
+                <p>
+                  Skrining cepat malnutrisi dan stunting pada balita usia 6-59
+                  bulan sesuai standar Posyandu: Merah (&lt;11.5 cm) Gizi Buruk,
+                  Kuning (11.5 - 12.4 cm) Gizi Kurang, dan Hijau (&ge;12.5 cm)
+                  Gizi Baik.
+                </p>
+              </div>
+            </article>
+
+            <article className="kia-standard-card">
+              <div className="kia-card-img-wrap">
+                <img
+                  src="/kia/kia-newborn.png"
+                  alt="Perawatan Bayi Baru Lahir"
+                />
+              </div>
+              <div className="kia-card-content">
+                <span className="kia-card-tag">Usia 0 - 28 Hari</span>
+                <h3>Perawatan Bayi & Tanda Bahaya</h3>
+                <p>
+                  Panduan esensial perawatan tali pusat, ASI eksklusif, serta
+                  deteksi dini tanda bahaya neonatal (napas cepat, kejang,
+                  aktivitas lemah, demam, kulit kuning) untuk rujukan faskes
+                  segera.
+                </p>
+              </div>
+            </article>
           </div>
         </section>
 
@@ -900,31 +1130,42 @@ function App() {
         <section className="feature-section" id="features">
           <div className="section-title">
             <p className="eyebrow">Keunggulan Sistem</p>
-            <h2>Satu Platform untuk Orang Tua & Admin Layanan</h2>
+            <h2>Empat Pilar Buku KIA untuk Ibu & Anak</h2>
           </div>
           <div className="feature-grid">
             <article>
               <div className="feature-icon-badge">📊</div>
-              <h3>Pencatatan Berkala</h3>
+              <h3>Antropometri WHO & LiLA</h3>
               <p>
-                Simpan data berat, tinggi, dan lingkar kepala secara akurat
-                sesuai tanggal kunjungan posyandu atau klinik.
+                Hitung Z-Score status gizi (BB/U, TB/U, BB/TB, LK/U) dan status
+                LiLA balita secara otomatis dengan indikator tren pertumbuhan Naik
+                (N) atau Tidak Naik (T).
+              </p>
+            </article>
+            <article>
+              <div className="feature-icon-badge">💉</div>
+              <h3>21 Jadwal Imunisasi Lengkap</h3>
+              <p>
+                Lengkap dengan imunisasi dasar dan lanjutan (PCV, Rotavirus, JE,
+                booster) disertai Smart Reminder otomatis berdasarkan tanggal
+                lahir bayi.
               </p>
             </article>
             <article>
               <div className="feature-icon-badge">⭐</div>
-              <h3>Milestone Perkembangan</h3>
+              <h3>Skrining KPSP Balita</h3>
               <p>
-                Pantau perkembangan kemampuan motorik kasar, motorik halus, dan
-                bahasa si kecil sesuai tahapan usianya.
+                Checklist kuesioner pra-skrining perkembangan motorik, bicara,
+                dan sosialisasi sesuai kelompok umur 3 sampai 24 bulan di Buku
+                KIA.
               </p>
             </article>
             <article>
-              <div className="feature-icon-badge">📱</div>
-              <h3>Sinkron Web & Mobile</h3>
+              <div className="feature-icon-badge">🤰</div>
+              <h3>Persiapan Pilar Ibu Hamil</h3>
               <p>
-                Terhubung langsung dengan backend API yang sama untuk akses web
-                dashboard dan aplikasi mobile Expo React Native.
+                Fondasi pencatatan kunjungan ANC dokter/bidan, konsumsi Tablet
+                Tambah Darah (TTD), dan perencanaan persalinan aman (P4K).
               </p>
             </article>
           </div>
@@ -1005,16 +1246,21 @@ function App() {
       <main className="login-shell">
         <div className="login-card">
           <div className="login-header">
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '12px' }}>
+              <div className="kia-book-badge">
+                <span className="kia-pill-tag">BUKU KIA</span>
+                <span className="kia-pink-dot"></span>
+                <span>Portal Administrator</span>
+              </div>
+            </div>
             <img
               src={babyIconSquare}
               alt="Nata Baby Logo"
               className="login-brand-logo"
             />
-            <span className="login-role-pill">Portal Administrator</span>
             <h1>Masuk Dashboard Admin</h1>
             <p className="login-subtitle">
-              Halaman ini khusus untuk Administrator Nata Baby. Masukkan akun
-              admin Anda untuk mengelola data pemantauan tumbuh kembang anak.
+              Kelola data pemantauan tumbuh kembang anak, antropometri LiLA, checklist KPSP, dan 21 jadwal imunisasi nasional.
             </p>
           </div>
 
@@ -1027,7 +1273,7 @@ function App() {
                 autoComplete="email"
                 disabled={isLoggingIn}
                 onChange={(event) => setLoginEmail(event.target.value)}
-                placeholder="bagus@natababy.local"
+                placeholder="email@contoh.com"
                 required
                 type="email"
                 value={loginEmail}
@@ -1068,9 +1314,7 @@ function App() {
               ← Kembali ke Beranda
             </button>
             <p className="login-hint">
-              🔒 <strong>Akses Terbatas:</strong> Hanya pengguna dengan peran{' '}
-              <strong>ADMIN</strong> atau <strong>SUPER_ADMIN</strong> yang
-              diizinkan masuk ke dashboard ini.
+              🔒 <strong>Akses Administrator:</strong> Gunakan akun admin kamu (<code>bagus@natabay.local</code> / <code>bagus@natababy.local</code>).
             </p>
           </div>
         </div>
@@ -1089,7 +1333,7 @@ function App() {
           />
           <div>
             <strong>Nata Baby</strong>
-            <small>Dashboard Pemantauan</small>
+            <small>Buku KIA</small>
           </div>
         </div>
 
@@ -1226,7 +1470,7 @@ function App() {
                     <strong>{child.fullName}</strong>
                     <small>
                       {child.gender === 'FEMALE' ? 'Perempuan' : 'Laki-laki'} ·{' '}
-                      {calculateAge(child.birthDate)}
+                      {formatAge(child.birthDate)}
                     </small>
                   </div>
                 </button>
@@ -1442,8 +1686,8 @@ function App() {
                               : 'Laki-laki'}
                           </td>
                           <td>{formatDate(child.birthDate)}</td>
-                          <td>{formatDecimal(child.birthWeightKg)} kg</td>
-                          <td>{formatDecimal(child.birthLengthCm)} cm</td>
+                          <td>{formatWeight(child.birthWeightKg)}</td>
+                          <td>{formatHeight(child.birthLengthCm)}</td>
                           <td>
                             <button
                               className="edit-child-button"
@@ -1463,19 +1707,288 @@ function App() {
           </section>
         ) : dashboardTab === 'milestones' ? (
           <section className="panel">
-            <h2>⭐ Milestone Perkembangan Si Kecil</h2>
-            <p className="muted">
-              Fitur katalog milestone perkembangan anak sesuai tahapan umur dari
-              Kemenkes & WHO.
-            </p>
+            <div className="section-heading">
+              <div>
+                <h2>⭐ Deteksi Dini Tumbuh Kembang (KPSP Buku KIA)</h2>
+                <p className="muted">
+                  {selectedChild
+                    ? `Kuesioner Pra-Skrining Perkembangan untuk ${selectedChild.fullName} (${formatAge(selectedChild.birthDate)})`
+                    : 'Pilih profil anak di panel samping untuk melihat checklist perkembangan.'}
+                </p>
+              </div>
+            </div>
+
+            {selectedChild ? (
+              <>
+                <div className="filter-bar">
+                  <button
+                    className={`filter-btn ${milestoneAgeFilter === 'all' ? 'active' : ''}`}
+                    onClick={() => setMilestoneAgeFilter('all')}
+                    type="button"
+                  >
+                    Semua Usia ({masterMilestones.length})
+                  </button>
+                  {[3, 6, 9, 12, 18, 24].map((age) => (
+                    <button
+                      className={`filter-btn ${milestoneAgeFilter === age ? 'active' : ''}`}
+                      key={age}
+                      onClick={() => setMilestoneAgeFilter(age)}
+                      type="button"
+                    >
+                      {age} Bulan
+                    </button>
+                  ))}
+                </div>
+
+                <div className="milestone-grid">
+                  {masterMilestones
+                    .filter((m) =>
+                      milestoneAgeFilter === 'all'
+                        ? true
+                        : m.ageMonth <= milestoneAgeFilter,
+                    )
+                    .map((item) => {
+                      const record = childMilestones.find(
+                        (cm) => String(cm.milestoneMasterId) === String(item.id),
+                      )
+                      const isAchieved = Boolean(record && record.achieved)
+
+                      return (
+                        <div
+                          className={`milestone-card ${isAchieved ? 'achieved' : ''}`}
+                          key={item.id}
+                        >
+                          <input
+                            checked={isAchieved}
+                            disabled={isUpdatingMilestone}
+                            onChange={() =>
+                              void handleToggleMilestone(item.id, isAchieved)
+                            }
+                            type="checkbox"
+                          />
+                          <div className="milestone-info">
+                            <div>
+                              <span className="milestone-category-pill">
+                                {item.category ?? 'Perkembangan'} · Usia{' '}
+                                {item.ageMonth} Bln
+                              </span>
+                            </div>
+                            <div className="milestone-text">
+                              {item.milestoneText}
+                            </div>
+                            {isAchieved && record?.achievedDate && (
+                              <div className="milestone-date">
+                                ✓ Tercapai pada {formatDate(record.achievedDate)}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
+                </div>
+              </>
+            ) : (
+              <div className="empty-state-card">
+                <img src={sleepBabySource} alt="Pilih anak" />
+                <h3>Pilih Anak Terlebih Dahulu</h3>
+                <p>
+                  Pilih profil anak dari daftar di sebelah kiri untuk melihat
+                  checklist KPSP.
+                </p>
+              </div>
+            )}
           </section>
         ) : dashboardTab === 'immunizations' ? (
           <section className="panel">
-            <h2>💉 Jadwal & Riwayat Imunisasi</h2>
-            <p className="muted">
-              Daftar vaksin wajib (HB0, BCG, Polio, DPT-HB-Hib, PCV, Rotavirus,
-              Campak Rubella).
-            </p>
+            <div className="section-heading">
+              <div>
+                <h2>💉 Jadwal & Smart Reminder Imunisasi (Buku KIA)</h2>
+                <p className="muted">
+                  {selectedChild
+                    ? `Program Imunisasi Nasional untuk ${selectedChild.fullName} (Lahir: ${formatDate(selectedChild.birthDate)})`
+                    : 'Pilih profil anak di panel samping untuk melihat jadwal dan pengingat imunisasi.'}
+                </p>
+              </div>
+            </div>
+
+            {selectedChild && immunizationSchedule ? (
+              <>
+                {/* Summary Chips */}
+                <div className="reminder-summary-chips">
+                  <div className="summary-chip">
+                    📋 Total: {immunizationSchedule.summary.total} Vaksin
+                  </div>
+                  <div className="summary-chip success">
+                    ✓ Lengkap: {immunizationSchedule.summary.completed}
+                  </div>
+                  <div className="summary-chip warning">
+                    ⚠️ Jatuh Tempo: {immunizationSchedule.summary.due}
+                  </div>
+                  <div className="summary-chip danger">
+                    🔴 Terlewat: {immunizationSchedule.summary.overdue}
+                  </div>
+                  <div className="summary-chip">
+                    ⏳ Akan Datang: {immunizationSchedule.summary.upcoming}
+                  </div>
+                </div>
+
+                {/* In-App Alert Reminder Banner */}
+                {immunizationSchedule.summary.hasActionRequired && (
+                  <div
+                    className={`reminder-alert-banner ${
+                      immunizationSchedule.summary.overdue > 0 ? 'danger' : ''
+                    }`}
+                  >
+                    <div className="reminder-banner-content">
+                      <h4>
+                        {immunizationSchedule.summary.overdue > 0
+                          ? '🔴 Ada Imunisasi yang Terlewat (Perlu Imunisasi Kejar)'
+                          : '⚠️ Imunisasi Jatuh Tempo Bulan Ini'}
+                      </h4>
+                      <p>
+                        Sesuai pedoman Buku KIA, si kecil perlu segera
+                        mendapatkan imunisasi di Posyandu atau fasilitas
+                        kesehatan terdekat.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Filter Pills */}
+                <div className="filter-bar">
+                  <button
+                    className={`filter-btn ${vaccineFilter === 'all' ? 'active' : ''}`}
+                    onClick={() => setVaccineFilter('all')}
+                    type="button"
+                  >
+                    Semua Vaksin ({immunizationSchedule.schedule.length})
+                  </button>
+                  <button
+                    className={`filter-btn ${vaccineFilter === 'action_needed' ? 'active' : ''}`}
+                    onClick={() => setVaccineFilter('action_needed')}
+                    type="button"
+                  >
+                    Perlu Tindakan (
+                    {immunizationSchedule.summary.due +
+                      immunizationSchedule.summary.overdue}
+                    )
+                  </button>
+                  <button
+                    className={`filter-btn ${vaccineFilter === 'completed' ? 'active' : ''}`}
+                    onClick={() => setVaccineFilter('completed')}
+                    type="button"
+                  >
+                    Sudah Diberikan ({immunizationSchedule.summary.completed})
+                  </button>
+                </div>
+
+                {/* Vaccine Cards Grid */}
+                <div className="vaccine-grid">
+                  {immunizationSchedule.schedule
+                    .filter((item) => {
+                      if (vaccineFilter === 'completed') return item.isCompleted
+                      if (vaccineFilter === 'action_needed')
+                        return item.status === 'DUE' || item.status === 'OVERDUE'
+                      return true
+                    })
+                    .map((item) => (
+                      <div className="vaccine-card" key={item.masterId}>
+                        <div>
+                          <div className="vaccine-card-header">
+                            <span className="vaccine-age-badge">
+                              {item.recommendedAgeMonth === 0
+                                ? '0-24 Jam'
+                                : `${item.recommendedAgeMonth} Bulan`}
+                            </span>
+                            <span
+                              className={`status-badge ${item.status.toLowerCase()}`}
+                            >
+                              {item.status === 'COMPLETED'
+                                ? '✓ Selesai'
+                                : item.status === 'DUE'
+                                  ? '⚠️ Jatuh Tempo'
+                                  : item.status === 'OVERDUE'
+                                    ? '🔴 Terlewat'
+                                    : '⏳ Belum Waktunya'}
+                            </span>
+                          </div>
+                          <h3 className="vaccine-name">{item.vaccineName}</h3>
+                          <p className="vaccine-target-date">
+                            Target Jadwal: {formatDate(item.targetDate)}
+                          </p>
+                          {item.description && (
+                            <p className="vaccine-description">
+                              {item.description}
+                            </p>
+                          )}
+                          {item.isCompleted && (
+                            <div className="vaccine-record-details">
+                              <p>
+                                <strong>Disuntik:</strong>{' '}
+                                {formatDate(item.givenDate)}
+                              </p>
+                              {item.location && (
+                                <p>
+                                  <strong>Lokasi:</strong> {item.location}
+                                </p>
+                              )}
+                              {item.batchNumber && (
+                                <p>
+                                  <strong>No. Batch:</strong> {item.batchNumber}
+                                </p>
+                              )}
+                              {item.administeredBy && (
+                                <p>
+                                  <strong>Petugas:</strong> {item.administeredBy}
+                                </p>
+                              )}
+                              {item.notes && (
+                                <p>
+                                  <strong>Catatan:</strong> {item.notes}
+                                </p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        <div className="vaccine-actions">
+                          <button
+                            className="btn-record-vaccine"
+                            onClick={() =>
+                              setVaccineModalData({
+                                masterId: item.masterId,
+                                vaccineName: item.vaccineName,
+                                recordId: item.recordId,
+                                givenDate:
+                                  item.givenDate ||
+                                  new Date().toISOString().slice(0, 10),
+                                location:
+                                  item.location || 'Posyandu / Puskesmas',
+                                batchNumber: item.batchNumber || '',
+                                administeredBy: item.administeredBy || '',
+                                notes: item.notes || '',
+                              })
+                            }
+                            type="button"
+                          >
+                            {item.isCompleted
+                              ? '✏️ Ubah Catatan'
+                              : '+ Catat Imunisasi'}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              </>
+            ) : (
+              <div className="empty-state-card">
+                <img src={sleepBabySource} alt="Pilih anak" />
+                <h3>Pilih Anak Terlebih Dahulu</h3>
+                <p>
+                  Pilih profil anak dari daftar di sebelah kiri untuk melihat
+                  jadwal imunisasi dan smart reminder.
+                </p>
+              </div>
+            )}
           </section>
         ) : dashboardTab === 'master-data' ? (
           <section className="panel">
@@ -1526,23 +2039,59 @@ function App() {
                   ✏️ Edit Data Anak
                 </button>
                 <div className="age-pill">
-                  {calculateAge(selectedChild.birthDate)}
+                  {formatAge(selectedChild.birthDate)}
                 </div>
               </div>
             </header>
+
+            {/* In-App Smart Reminder Banner */}
+            {immunizationSchedule?.summary.hasActionRequired && (
+              <div
+                className={`reminder-alert-banner ${
+                  immunizationSchedule.summary.overdue > 0 ? 'danger' : ''
+                }`}
+              >
+                <div className="reminder-banner-content">
+                  <h4>
+                    {immunizationSchedule.summary.overdue > 0
+                      ? '🔴 Ada Imunisasi yang Terlewat (Perlu Imunisasi Kejar)'
+                      : '⚠️ Imunisasi Jatuh Tempo Bulan Ini'}
+                  </h4>
+                  <p>
+                    {selectedChild.fullName} memiliki{' '}
+                    {immunizationSchedule.summary.due > 0 &&
+                      `${immunizationSchedule.summary.due} vaksin jatuh tempo`}
+                    {immunizationSchedule.summary.due > 0 &&
+                      immunizationSchedule.summary.overdue > 0 &&
+                      ' dan '}
+                    {immunizationSchedule.summary.overdue > 0 &&
+                      `${immunizationSchedule.summary.overdue} vaksin terlewat`}
+                    {' '}sesuai Buku KIA.
+                  </p>
+                </div>
+                <button
+                  className="primary-button"
+                  onClick={() => setDashboardTab('immunizations')}
+                  style={{ padding: '8px 16px', fontSize: '13px' }}
+                  type="button"
+                >
+                  Lihat Jadwal Imunisasi →
+                </button>
+              </div>
+            )}
 
             <section className="stats-grid">
               <article className="stat-card tone-green">
                 <span>Berat Badan Terakhir</span>
                 <strong>
-                  {formatDecimal(latestMeasurement?.weightKg)} kg
+                  {formatWeight(latestMeasurement?.weightKg)}
                 </strong>
                 <small>Pengukuran berkala</small>
               </article>
               <article className="stat-card tone-blue">
                 <span>Tinggi Badan Terakhir</span>
                 <strong>
-                  {formatDecimal(latestMeasurement?.heightCm)} cm
+                  {formatHeight(latestMeasurement?.heightCm)}
                 </strong>
                 <small>Pertumbuhan fisik</small>
               </article>
@@ -1573,7 +2122,7 @@ function App() {
                     value={measurementForm.measuredAt}
                   />
                 </label>
-                <div className="three-cols">
+                <div className="four-cols">
                   <label>
                     Berat (kg)
                     <input
@@ -1622,7 +2171,42 @@ function App() {
                       value={measurementForm.headCircumferenceCm}
                     />
                   </label>
+                  <label>
+                    LiLA (cm) - Posyandu
+                    <input
+                      min="0"
+                      onChange={(event) =>
+                        setMeasurementForm((current) => ({
+                          ...current,
+                          armCircumferenceCm: event.target.value,
+                        }))
+                      }
+                      placeholder="Contoh: 12.5"
+                      step="0.1"
+                      type="number"
+                      value={measurementForm.armCircumferenceCm}
+                    />
+                  </label>
                 </div>
+
+                <div className="lila-hint-banner">
+                  <div className="lila-hint-text">
+                    <strong>💡 Standar Pita LiLA Buku KIA (Usia 6-59 Bulan):</strong>
+                    <div className="lila-pills-row">
+                      <span className="lila-pill-green">🟢 &ge; 12.5 cm: Normal / Gizi Baik</span>
+                      <span className="lila-pill-yellow">🟡 11.5 - 12.4 cm: Waspada Gizi Kurang</span>
+                      <span className="lila-pill-red">🔴 &lt; 11.5 cm: Gizi Buruk</span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="lila-guide-toggle-btn"
+                    onClick={() => setShowLilaModal(true)}
+                  >
+                    📖 Buka Panduan Visual Pita LiLA
+                  </button>
+                </div>
+
                 <label>
                   Catatan Tambahan
                   <textarea
@@ -1640,6 +2224,7 @@ function App() {
                 <button
                   className="primary-button"
                   disabled={isSavingMeasurement}
+                  type="submit"
                 >
                   {isSavingMeasurement
                     ? 'Menyimpan...'
@@ -1691,16 +2276,17 @@ function App() {
                   <thead>
                     <tr>
                       <th>Tanggal</th>
-                      <th>Berat</th>
-                      <th>Tinggi</th>
+                      <th>Berat & Tren</th>
+                      <th>Tinggi & Status</th>
                       <th>Lingkar Kepala</th>
+                      <th>LiLA (cm)</th>
                       <th>Catatan</th>
                     </tr>
                   </thead>
                   <tbody>
                     {selectedChild.measurements.length === 0 ? (
                       <tr>
-                        <td colSpan={5}>Belum ada riwayat pengukuran.</td>
+                        <td colSpan={6}>Belum ada riwayat pengukuran.</td>
                       </tr>
                     ) : (
                       selectedChild.measurements.map((measurement) => (
@@ -1710,10 +2296,52 @@ function App() {
                             <strong>
                               {formatDecimal(measurement.weightKg)} kg
                             </strong>
+                            {measurement.growthTrend && (
+                              <span
+                                className={`status-badge ${
+                                  measurement.growthTrend === 'N'
+                                    ? 'completed'
+                                    : 'overdue'
+                                }`}
+                                style={{ marginLeft: '6px' }}
+                                title={
+                                  measurement.growthTrend === 'N'
+                                    ? 'Naik (pertumbuhan baik)'
+                                    : 'Tidak Naik (perlu perhatian)'
+                                }
+                              >
+                                {measurement.growthTrend === 'N'
+                                  ? '↑ Naik'
+                                  : '— Tetap'}
+                              </span>
+                            )}
                           </td>
-                          <td>{formatDecimal(measurement.heightCm)} cm</td>
+                          <td>
+                            {formatDecimal(measurement.heightCm)} cm
+                            {measurement.heightForAgeStatus && (
+                              <small
+                                className="muted"
+                                style={{ display: 'block' }}
+                              >
+                                {measurement.heightForAgeStatus}
+                              </small>
+                            )}
+                          </td>
                           <td>
                             {formatDecimal(measurement.headCircumferenceCm)} cm
+                          </td>
+                          <td>
+                            {measurement.armCircumferenceCm
+                              ? `${formatDecimal(measurement.armCircumferenceCm)} cm`
+                              : '-'}
+                            {measurement.armCircumferenceStatus && (
+                              <small
+                                className="muted"
+                                style={{ display: 'block' }}
+                              >
+                                {measurement.armCircumferenceStatus}
+                              </small>
+                            )}
                           </td>
                           <td>{measurement.notes ?? '-'}</td>
                         </tr>
@@ -1780,7 +2408,7 @@ function App() {
                   autoComplete="email"
                   disabled={isLoggingInModal}
                   onChange={(event) => setLoginModalEmail(event.target.value)}
-                  placeholder="bagus@natababy.local"
+                  placeholder="email@contoh.com"
                   required
                   type="email"
                   value={loginModalEmail}
@@ -1810,6 +2438,210 @@ function App() {
                 {isLoggingInModal ? 'Memverifikasi...' : 'Masuk sebagai Admin'}
               </button>
             </form>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Modal Catat Imunisasi (Buku KIA) */}
+      {vaccineModalData ? (
+        <div
+          className="modal-overlay"
+          onClick={() => setVaccineModalData(null)}
+        >
+          <div
+            className="modal-content"
+            onClick={(event) => event.stopPropagation()}
+            style={{ maxWidth: '520px' }}
+          >
+            <button
+              className="modal-close-btn"
+              onClick={() => setVaccineModalData(null)}
+              type="button"
+            >
+              ✕
+            </button>
+            <div className="login-header">
+              <span className="login-role-pill">Buku KIA</span>
+              <h2>💉 Catat Imunisasi</h2>
+              <p className="login-subtitle">
+                {vaccineModalData.vaccineName} untuk {selectedChild?.fullName}
+              </p>
+            </div>
+
+            {vaccineMsg ? (
+              <div
+                className={`alert ${
+                  vaccineMsg.type === 'success' ? 'alert-success' : ''
+                }`}
+              >
+                {vaccineMsg.text}
+              </div>
+            ) : null}
+
+            <form className="login-form" onSubmit={handleSaveVaccine}>
+              <label>
+                Tanggal Penyuntikan
+                <input
+                  disabled={isSavingVaccine}
+                  onChange={(event) =>
+                    setVaccineModalData({
+                      ...vaccineModalData,
+                      givenDate: event.target.value,
+                    })
+                  }
+                  required
+                  type="date"
+                  value={vaccineModalData.givenDate}
+                />
+              </label>
+
+              <label>
+                Lokasi / Fasilitas Kesehatan
+                <input
+                  disabled={isSavingVaccine}
+                  onChange={(event) =>
+                    setVaccineModalData({
+                      ...vaccineModalData,
+                      location: event.target.value,
+                    })
+                  }
+                  placeholder="Contoh: Posyandu Melati / Puskesmas"
+                  type="text"
+                  value={vaccineModalData.location}
+                />
+              </label>
+
+              <div className="two-cols">
+                <label>
+                  Nomor Batch Vaksin
+                  <input
+                    disabled={isSavingVaccine}
+                    onChange={(event) =>
+                      setVaccineModalData({
+                        ...vaccineModalData,
+                        batchNumber: event.target.value,
+                      })
+                    }
+                    placeholder="Contoh: PCV-01-X"
+                    type="text"
+                    value={vaccineModalData.batchNumber}
+                  />
+                </label>
+                <label>
+                  Petugas / Bidan
+                  <input
+                    disabled={isSavingVaccine}
+                    onChange={(event) =>
+                      setVaccineModalData({
+                        ...vaccineModalData,
+                        administeredBy: event.target.value,
+                      })
+                    }
+                    placeholder="Contoh: Bidan Siti"
+                    type="text"
+                    value={vaccineModalData.administeredBy}
+                  />
+                </label>
+              </div>
+
+              <label>
+                Catatan Tambahan (KIPI / Reaksi Pasca Suntik)
+                <textarea
+                  disabled={isSavingVaccine}
+                  onChange={(event) =>
+                    setVaccineModalData({
+                      ...vaccineModalData,
+                      notes: event.target.value,
+                    })
+                  }
+                  placeholder="Contoh: Agak hangat sedikit setelah imunisasi."
+                  rows={2}
+                  value={vaccineModalData.notes}
+                />
+              </label>
+
+              <div
+                style={{
+                  display: 'flex',
+                  gap: '12px',
+                  justifyContent: 'flex-end',
+                  marginTop: '10px',
+                }}
+              >
+                <button
+                  className="ghost-button"
+                  onClick={() => setVaccineModalData(null)}
+                  type="button"
+                >
+                  Batal
+                </button>
+                <button
+                  className="primary-button"
+                  disabled={isSavingVaccine}
+                  type="submit"
+                >
+                  {isSavingVaccine ? 'Menyimpan...' : 'Simpan Imunisasi'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
+
+      {showLilaModal ? (
+        <div className="modal-backdrop" onClick={() => setShowLilaModal(false)}>
+          <div
+            className="modal-card lila-modal-card"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-header">
+              <div>
+                <span className="login-role-pill">Panduan Buku KIA</span>
+                <h3 style={{ margin: '6px 0 0', fontSize: '18px' }}>
+                  Panduan Pengukuran Lingkar Lengan Atas (LiLA)
+                </h3>
+              </div>
+              <button
+                className="modal-close-btn"
+                onClick={() => setShowLilaModal(false)}
+                type="button"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="lila-modal-body">
+              <p
+                style={{
+                  color: 'var(--text-muted)',
+                  fontSize: '13px',
+                  margin: '8px 0 14px',
+                  lineHeight: '1.5',
+                }}
+              >
+                Pengukuran LiLA dilakukan di lengan yang tidak aktif (biasanya lengan kiri)
+                pada balita usia 6-59 bulan untuk skrining gizi dan rujukan cepat di Posyandu/Fasilitas Kesehatan.
+              </p>
+              <img
+                src="/kia/kia-lila-guide.png"
+                alt="Panduan Pita LiLA Buku KIA"
+                className="lila-modal-img"
+              />
+            </div>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'flex-end',
+                marginTop: '16px',
+              }}
+            >
+              <button
+                className="primary-button"
+                onClick={() => setShowLilaModal(false)}
+                type="button"
+              >
+                Tutup Panduan
+              </button>
+            </div>
           </div>
         </div>
       ) : null}
